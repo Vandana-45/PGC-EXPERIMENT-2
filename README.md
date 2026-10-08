@@ -1,358 +1,584 @@
-# CC Experiment 01 — Hypervisor Performance Analysis
+# PGC Experiment 2 — Multithreading Using Pthreads and OpenMP
 
-## Performance Analysis of Type-1 and Type-2 Hypervisors
+## Aim
 
-This experiment compares the CPU performance of a Type-1 hypervisor,
-**Proxmox VE**, and a Type-2 hypervisor, **VMware Workstation**, using
-identically configured Ubuntu virtual machines and the Sysbench CPU
-benchmark.
-
-### Key Finding
-
-> **Proxmox VE (Type-1) achieved 1,689.43 events/sec compared to VMware
-> Workstation's (Type-2) 1,058.76 events/sec — a +59.6% throughput
-> advantage, with average latency 37.2% lower.**
+To study and implement multithreading using **POSIX Threads (Pthreads)** and **OpenMP**, and to understand thread creation, work distribution, race conditions, synchronization, reduction, barriers, and parallel performance.
 
 ---
 
-## Table of Contents
+## Objectives
 
-1. [Objective](#1-objective)
-2. [Hypervisors Used](#2-hypervisors-used)
-3. [Virtual Machine Configuration](#3-virtual-machine-configuration)
-4. [Type-1 Hypervisor — Proxmox VE](#4-type-1-hypervisor--proxmox-ve)
-5. [Type-2 Hypervisor — VMware Workstation](#5-type-2-hypervisor--vmware-workstation)
-6. [Performance Comparison](#6-performance-comparison)
-7. [Analysis](#7-analysis)
-8. [Conclusion](#8-conclusion)
-9. [Repository Structure](#9-repository-structure)
-
----
-
-## 1. Objective
-
-- Configure a virtual machine on Proxmox VE (Type-1).
-- Configure a virtual machine on VMware Workstation (Type-2).
-- Use identical VM resources on both hypervisors.
-- Run the same Sysbench CPU benchmark on each.
-- Record and compare CPU performance results.
+* Create and manage multiple threads using Pthreads.
+* Understand how work is distributed among threads.
+* Demonstrate race conditions in multithreaded programs.
+* Resolve race conditions using mutex synchronization.
+* Implement parallel programs using OpenMP.
+* Use OpenMP reduction for parallel summation.
+* Demonstrate OpenMP race conditions.
+* Use OpenMP critical sections for synchronization.
+* Use OpenMP barriers for thread synchronization.
+* Measure and compare sequential, Pthreads, and OpenMP performance.
+* Calculate speedup and parallel efficiency.
+* Compare Pthreads and OpenMP scalability.
 
 ---
 
-## 2. Hypervisors Used
+# 1. Theoretical Background
 
-| | Type-1 | Type-2 |
-|---|---|---|
-| Hypervisor | Proxmox VE | VMware Workstation |
-| Architecture | Bare-metal (runs directly on hardware, KVM-based) | Hosted (runs as an application on top of a host OS) |
+## 1.1 Multithreading
 
----
+Multithreading is a programming technique in which multiple threads execute concurrently within the same process.
 
-## 3. Virtual Machine Configuration
+A thread is a lightweight execution unit that shares the process's memory and resources with other threads.
 
-Both virtual machines were configured with identical resources to ensure a fair comparison.
-
-| Resource | Type-1: Proxmox | Type-2: VMware |
-|---|---|---|
-| Guest OS | Ubuntu 22.04.5 LTS | Ubuntu (64-bit) |
-| CPU | 2 vCPU (1 socket, 2 cores), x86-64-v2-AES | 2 vCPU (1 processor, 2 cores) |
-| Memory | 2048 MiB | 2048 MB |
-| Disk | 20 GB | 20 GB |
-| Network | VirtIO, bridge `vmbr0` | NAT |
-| Benchmark | Sysbench CPU 1.0.20 | Sysbench CPU 1.0.20 |
-| Prime limit | 20000 | 20000 |
+Multithreading can improve performance by allowing independent portions of a program to execute simultaneously on multiple CPU cores.
 
 ---
 
-## 4. Type-1 Hypervisor — Proxmox VE
+## 1.2 Pthreads
 
-### 4.1 VM Configuration
+**POSIX Threads (Pthreads)** is a standard thread API available on Unix/Linux systems.
 
-- VM Name: `CC-Exp1-Type1`
-- CPU: 2 vCPU, type `x86-64-v2-AES`
-- Memory: 2048 MiB
-- Disk: 20 GB (local-lvm)
-- Network: VirtIO, bridge `vmbr0`
-- Guest OS: Ubuntu 22.04.5 LTS
-- Virtualization: KVM
+Common Pthread functions include:
 
-### 4.2 Commands Used
-
-```bash
-hostnamectl
-lscpu
-free -h
-df -h
-top
-
-sudo apt update
-sudo apt install sysbench -y
-sysbench --version
-sysbench cpu --cpu-max-prime=20000 run
+```c
+pthread_create()
+pthread_join()
+pthread_exit()
 ```
 
-### 4.3 Sysbench CPU Benchmark Result
-
-```
-sysbench 1.0.20 (using system LuaJIT 2.1.0-beta3)
-
-Running the test with following options:
-Number of threads: 1
-Prime numbers limit: 20000
-
-CPU speed:
-    events per second:  1689.43
-
-General statistics:
-    total time:                         10.0006s
-    total number of events:             16903
-
-Latency (ms):
-         min:                                  0.57
-         avg:                                  0.59
-         max:                                  1.09
-         95th percentile:                      0.68
-         sum:                               9992.73
-
-Threads fairness:
-    events (avg/stddev):           16903.0000/0.00
-    execution time (avg/stddev):   9.9927/0.00
-```
-
-### 4.4 Type-1 Observation Table
-
-| Parameter | Observation |
-|---|---|
-| Hypervisor | Proxmox VE |
-| Hypervisor Type | Type-1 |
-| Guest OS | Ubuntu 22.04.5 LTS |
-| CPU Allocation | 2 vCPU |
-| Memory Allocation | 2 GB |
-| Disk Allocation | 20 GB |
-| Network | VirtIO / vmbr0 |
-| Sysbench Version | 1.0.20 |
-| CPU Prime Limit | 20000 |
-| Total Execution Time | 10.0006 s |
-| Total Events | 16903 |
-| Events per Second | 1689.43 |
-| Minimum Latency | 0.57 ms |
-| Average Latency | 0.59 ms |
-| Maximum Latency | 1.09 ms |
-| 95th Percentile Latency | 0.68 ms |
-
-### 4.5 Screenshots
-
-![Proxmox Dashboard](screenshots/type1-proxmox/01-proxmox-dashboard.png)
-*Figure 1: Proxmox VE dashboard after login.*
-
-![VM Configuration](screenshots/type1-proxmox/02-proxmox-vm-configuration.png)
-*Figure 2: VM creation — final configuration (Confirm page).*
-
-![VM Running](screenshots/type1-proxmox/03-proxmox-vm-running.jpeg)
-*Figure 3: VM status showing Running, with CPU/memory usage.*
-
-![Ubuntu Console](screenshots/type1-proxmox/04-proxmox-ubuntu-console.jpeg)
-*Figure 4: Ubuntu running inside the Proxmox VE console.*
-
-![System Configuration](screenshots/type1-proxmox/05-proxmox-system-configuration.jpeg)
-*Figure 5: `lscpu`, `free -h`, and `df -h` output inside the VM.*
-
-![Sysbench Result](screenshots/type1-proxmox/06-proxmox-sysbench-result.jpeg)
-*Figure 6: Sysbench CPU benchmark output — 1689.43 events/sec.*
-
-![Resource Monitoring](screenshots/type1-proxmox/07-proxmox-resource-monitoring.jpeg)
-*Figure 7: Proxmox VE resource monitoring (Disk I/O) graph.*
+`pthread_create()` creates a new thread, while `pthread_join()` waits for a thread to complete.
 
 ---
 
-## 5. Type-2 Hypervisor — VMware Workstation
+## 1.3 OpenMP
 
-### 5.1 VM Configuration
+**OpenMP (Open Multi-Processing)** is an API for shared-memory parallel programming.
 
-- CPU: 2 vCPU (1 processor, 2 cores)
-- Memory: 2048 MB
-- Disk: 20 GB
-- Guest OS: Ubuntu (64-bit)
-- Network: NAT
-- Host CPU: 12th Gen Intel Core i5-12450H
+OpenMP uses compiler directives such as:
 
-### 5.2 Commands Used
-
-```bash
-hostnamectl
-lscpu
-free -h
-df -h
-top
-
-sudo apt update
-sudo apt install sysbench -y
-sysbench --version
-sysbench cpu --cpu-max-prime=20000 run
+```c
+#pragma omp parallel
 ```
 
-**Note:** the benchmark command was initially entered incorrectly as
-`sysbench cpu --cpu-max-price=20000 run`, producing an invalid option
-error. The correct flag is `--cpu-max-prime=20000`.
+and
 
-### 5.3 Sysbench CPU Benchmark Result
-
-```
-sysbench 1.0.20 (using system LuaJIT 2.1.1761786044)
-
-Running the test with following options:
-Number of threads: 1
-Prime numbers limit: 20000
-
-CPU speed:
-    events per second:  1058.76
-
-General statistics:
-    total time:                         10.0002s
-    total number of events:             10589
-
-Latency (ms):
-         min:                                  0.72
-         avg:                                  0.94
-         max:                                  5.32
-         95th percentile:                      1.61
-         sum:                               9985.42
-
-Threads fairness:
-    events (avg/stddev):           10589.0000/0.00
-    execution time (avg/stddev):   9.9854/0.00
+```c
+#pragma omp parallel for
 ```
 
-### 5.4 Type-2 Observation Table
-
-| Parameter | Observation |
-|---|---|
-| Hypervisor | VMware Workstation |
-| Hypervisor Type | Type-2 |
-| Guest OS | Ubuntu (64-bit) |
-| CPU Allocation | 2 vCPU |
-| Memory Allocation | 2 GB |
-| Disk Allocation | 20 GB |
-| Network | NAT |
-| Sysbench Version | 1.0.20 |
-| CPU Prime Limit | 20000 |
-| Total Execution Time | 10.0002 s |
-| Total Events | 10589 |
-| Events per Second | 1058.76 |
-| Minimum Latency | 0.72 ms |
-| Average Latency | 0.94 ms |
-| Maximum Latency | 5.32 ms |
-| 95th Percentile Latency | 1.61 ms |
-
-### 5.5 Screenshots
-
-![VMware VM Configuration](screenshots/type2-vmware/01-vmware-vm-configuration.jpeg)
-*Figure 8: VMware Workstation hardware settings — 2 GB RAM, 2 vCPU, 20 GB disk, NAT.*
-
-![VMware VM Running](screenshots/type2-vmware/02-vmware-vm-running.jpeg)
-*Figure 9: Ubuntu desktop running inside VMware Workstation.*
-
-![System Configuration](screenshots/type2-vmware/03-vmware-system-configuration.jpeg)
-*Figure 10: `lscpu`, `free -h`, `df -h` output inside the VM.*
-
-![Sysbench Result](screenshots/type2-vmware/04-vmware-sysbench-result.jpeg)
-*Figure 11: Sysbench CPU benchmark output — 1058.76 events/sec.*
+It provides a simpler approach to parallel programming compared with manually managing Pthreads.
 
 ---
 
-## 6. Performance Comparison
+## 1.4 Race Condition
 
-| Performance Metric | Proxmox VE (Type-1) | VMware Workstation (Type-2) | Difference | Advantage |
-|---|---|---|---|---|
-| Total Execution Time | 10.0006 s | 10.0002 s | ~0.004% | Fixed 10s window |
-| Total Events Processed | **16,903** | 10,589 | +6,314 (+59.6%) | Proxmox VE |
-| Events per Second (EPS) | **1,689.43** | 1,058.76 | +630.67 (+59.6%) | Proxmox VE |
-| Minimum Latency | **0.57 ms** | 0.72 ms | −0.15 ms (−20.8%) | Proxmox VE |
-| Average Latency | **0.59 ms** | 0.94 ms | −0.35 ms (−37.2%) | Proxmox VE |
-| 95th Percentile Latency | **0.68 ms** | 1.61 ms | −0.93 ms (−57.8%) | Proxmox VE |
-| Maximum Latency | **1.09 ms** | 5.32 ms | −4.23 ms (−79.5%) | Proxmox VE |
+A race condition occurs when multiple threads access shared data concurrently and at least one thread modifies the data.
 
-![Performance Comparison](screenshots/comparison/01-hypervisor-performance-comparison.png)
-*Figure 12: Completed performance comparison table.*
+The final result can depend on the order in which threads execute.
 
 ---
 
-## 7. Analysis
+## 1.5 Mutex
 
-Proxmox VE (Type-1) outperformed VMware Workstation (Type-2) across
-every measured metric, with the gap most visible in maximum latency
-(79.5% lower) and 95th percentile latency (57.8% lower).
+A **mutex (mutual exclusion lock)** protects a critical section so that only one thread can access the protected shared resource at a time.
 
-- **Architectural overhead**: Proxmox VE's KVM hypervisor runs directly
-  on bare metal, so guest CPU instructions execute close to hardware
-  with minimal interception. VMware Workstation runs as an application
-  on top of a host OS, adding an extra translation and scheduling layer
-  between the guest and the physical CPU.
-- **Scheduling contention**: on VMware, the guest competes with the
-  host OS's own background processes for CPU time, which likely
-  explains the higher and more variable latency (max 5.32 ms vs
-  1.09 ms).
-- **Consistency**: Proxmox VE's tighter spread between min (0.57 ms)
-  and max (1.09 ms) latency indicates more predictable performance —
-  useful for latency-sensitive workloads.
+Typical Pthread mutex functions are:
 
----
-
-## 8. Conclusion
-
-This experiment measured CPU performance of identically configured
-Ubuntu VMs (2 vCPU, 2 GB RAM, 20 GB disk) on a Type-1 hypervisor
-(Proxmox VE) and a Type-2 hypervisor (VMware Workstation), using the
-Sysbench CPU benchmark with a prime limit of 20000.
-
-Proxmox VE delivered **59.6% higher throughput** and **37.2% lower
-average latency** than VMware Workstation, consistent with the
-architectural expectation that bare-metal (Type-1) hypervisors
-introduce less overhead than hosted (Type-2) hypervisors for
-CPU-bound workloads.
-
-**Use-case takeaway:**
-- **Type-1 (Proxmox VE)** — better suited for production, servers, and
-  performance-critical workloads.
-- **Type-2 (VMware Workstation)** — convenient for local development,
-  testing, and desktop sandboxing where raw performance matters less.
-
----
-
-## 9. Repository Structure
-
+```c
+pthread_mutex_lock()
+pthread_mutex_unlock()
 ```
-CC-Experiment-01-Hypervisor-Analysis/
+
+---
+
+## 1.6 Critical Section
+
+A critical section is a portion of code that accesses shared data and must not be executed simultaneously by multiple threads.
+
+OpenMP provides:
+
+```c
+#pragma omp critical
+```
+
+to protect critical sections.
+
+---
+
+## 1.7 Reduction
+
+OpenMP reduction allows multiple threads to calculate partial results independently and combine them into a final result.
+
+Example:
+
+```c
+#pragma omp parallel for reduction(+:sum)
+```
+
+This is useful for operations such as summation.
+
+---
+
+## 1.8 Barrier Synchronization
+
+A barrier forces all participating threads to wait until every thread reaches the barrier.
+
+OpenMP provides:
+
+```c
+#pragma omp barrier
+```
+
+This ensures that no thread proceeds beyond the synchronization point until all required threads have arrived.
+
+---
+
+# 2. Software Environment
+
+| Component            | Configuration            |
+| -------------------- | ------------------------ |
+| Programming Language | C                        |
+| Compiler             | GCC                      |
+| Thread Library       | POSIX Threads (Pthreads) |
+| Parallel API         | OpenMP                   |
+| Operating System     | Linux / Ubuntu           |
+| Version Control      | Git                      |
+| Repository           | PGC-EXPERIMENT-2         |
+
+---
+
+# 3. Part A — Pthreads
+
+## 3.1 Basic Thread Creation
+
+### `thread1.c`
+
+Demonstrates the basic creation and execution of a Pthread.
+
+Important functions:
+
+```c
+pthread_create()
+pthread_join()
+```
+
+The main program creates a thread and waits for its completion.
+
+---
+
+## 3.2 Multiple Threads
+
+### `thread2.c`
+
+Demonstrates creation of multiple Pthreads.
+
+Multiple threads execute concurrently, demonstrating the basic concept of parallel execution.
+
+---
+
+## 3.3 Parallel Work Distribution
+
+### `thread_sum.c`
+
+This program divides a summation workload among multiple threads.
+
+Each thread processes a portion of the data, and the partial results are combined to obtain the final sum.
+
+This demonstrates how a large computational task can be divided among multiple threads.
+
+---
+
+## 3.4 Pthread Race Condition
+
+### `race.c`
+
+This program demonstrates a race condition.
+
+Multiple threads access and modify a shared variable without synchronization.
+
+Because the operations are not protected, the final result can differ from the expected result.
+
+---
+
+## 3.5 Pthread Mutex Synchronization
+
+### `mutex.c`
+
+This program fixes the race condition demonstrated in `race.c`.
+
+A mutex is used to protect the critical section:
+
+```c
+pthread_mutex_lock()
+```
+
+The shared resource is accessed safely and then released using:
+
+```c
+pthread_mutex_unlock()
+```
+
+This ensures mutual exclusion.
+
+---
+
+# 4. Part B — OpenMP
+
+## 4.1 Basic OpenMP Parallelism
+
+### `omp1.c`
+
+Demonstrates the basic OpenMP parallel region.
+
+The program uses OpenMP directives to create multiple threads and execute code concurrently.
+
+---
+
+## 4.2 OpenMP Reduction
+
+### `omp_sum.c`
+
+Demonstrates parallel summation using OpenMP reduction.
+
+The reduction operation allows each thread to maintain a private partial sum and safely combine the results.
+
+---
+
+## 4.3 OpenMP Race Condition
+
+### `omp_race.c`
+
+Demonstrates a race condition when multiple OpenMP threads update shared data without proper synchronization.
+
+The result may be incorrect because multiple threads can access the shared variable at the same time.
+
+---
+
+## 4.4 OpenMP Critical Section
+
+### `omp_critical.c`
+
+Demonstrates how an OpenMP critical section can be used to protect shared data.
+
+The directive:
+
+```c
+#pragma omp critical
+```
+
+ensures that only one thread executes the protected section at a time.
+
+---
+
+## 4.5 OpenMP Barrier
+
+### `omp_barrier.c`
+
+Demonstrates barrier synchronization.
+
+The directive:
+
+```c
+#pragma omp barrier
+```
+
+causes threads to wait until all participating threads reach the barrier.
+
+---
+
+# 5. Part C — Performance Analysis
+
+Performance was measured using a large summation workload.
+
+The sequential implementation was used as the baseline.
+
+### Sequential Baseline
+
+```text
+Sequential execution time = 1.353219 seconds
+```
+
+The parallel implementations were tested with different numbers of threads.
+
+---
+
+## 5.1 Performance Results
+
+| Threads | Pthreads Time (s) | OpenMP Time (s) |
+| ------: | ----------------: | --------------: |
+|       1 |          1.348142 |        1.409294 |
+|       2 |          0.680737 |        0.715560 |
+|       4 |          0.358872 |        0.360803 |
+|       6 |          0.241345 |        0.241608 |
+|      16 |          0.144812 |        0.140692 |
+
+The execution time generally decreases as the number of threads increases.
+
+---
+
+# 6. Speedup Analysis
+
+Speedup is calculated using:
+
+```text
+Speedup = Sequential Time / Parallel Time
+```
+
+Using the sequential execution time of **1.353219 seconds**:
+
+| Threads | Pthreads Speedup | OpenMP Speedup |
+| ------: | ---------------: | -------------: |
+|       1 |            1.004 |          0.960 |
+|       2 |            1.988 |          1.891 |
+|       4 |            3.771 |          3.751 |
+|       6 |            5.608 |          5.601 |
+|      16 |            9.345 |          9.618 |
+
+The results show that increasing the number of threads provides significant speedup for this workload.
+
+---
+
+# 7. Parallel Efficiency
+
+Parallel efficiency is calculated as:
+
+```text
+Efficiency = (Speedup / Number of Threads) × 100
+```
+
+| Threads | Pthreads Efficiency | OpenMP Efficiency |
+| ------: | ------------------: | ----------------: |
+|       1 |             100.38% |            96.02% |
+|       2 |              99.39% |            94.56% |
+|       4 |              94.27% |            93.76% |
+|       6 |              93.45% |            93.35% |
+|      16 |              58.40% |            60.11% |
+
+Efficiency decreases at higher thread counts because of parallel overhead, synchronization, scheduling, and limitations in available CPU resources.
+
+---
+
+# 8. Performance Graphs
+
+The following graphs are included in the `images` directory.
+
+### Execution Time vs Threads
+
+![Execution Time vs Threads](images/execution_time_vs_threads.png)
+
+This graph shows the reduction in execution time as the number of threads increases.
+
+### Speedup vs Threads
+
+![Speedup vs Threads](images/speedup_vs_threads.png)
+
+This graph shows the improvement in performance relative to the sequential implementation.
+
+### Efficiency vs Threads
+
+![Efficiency vs Threads](images/efficiency_vs_threads.png)
+
+This graph shows how parallel efficiency changes with increasing thread count.
+
+---
+
+# 9. Pthreads vs OpenMP
+
+| Feature             | Pthreads                       | OpenMP                              |
+| ------------------- | ------------------------------ | ----------------------------------- |
+| Programming model   | Explicit thread management     | Directive-based                     |
+| Thread creation     | Manual                         | Mostly automatic                    |
+| Synchronization     | Mutexes and other Pthread APIs | Critical, barrier, reduction, etc.  |
+| Ease of programming | More complex                   | Simpler                             |
+| Control             | Fine-grained                   | Higher-level                        |
+| Portability         | POSIX systems                  | Broad compiler support              |
+| Best suited for     | Detailed thread control        | Rapid shared-memory parallelization |
+
+Pthreads provides greater control over thread creation and synchronization, while OpenMP simplifies parallel programming through compiler directives.
+
+---
+
+# 10. Important Terminology
+
+### Thread
+
+A lightweight execution unit within a process.
+
+### Parallelism
+
+Executing multiple independent operations simultaneously.
+
+### Concurrency
+
+Multiple tasks making progress during overlapping periods of execution.
+
+### Race Condition
+
+An error caused by unsynchronized access to shared data.
+
+### Mutex
+
+A synchronization mechanism that provides mutual exclusion.
+
+### Critical Section
+
+A section of code that accesses shared resources and requires synchronization.
+
+### Reduction
+
+A parallel operation that combines individual thread results into a single result.
+
+### Barrier
+
+A synchronization point where threads wait for one another.
+
+### Speedup
+
+The performance improvement obtained by using parallel execution compared with sequential execution.
+
+### Efficiency
+
+The utilization of available parallel processing resources.
+
+---
+
+# 11. Repository Structure
+
+```text
+PGC-EXPERIMENT-2/
 │
 ├── README.md
+├── .gitignore
 │
-├── screenshots/
-│   ├── type1-proxmox/
-│   │   ├── 01-proxmox-dashboard.png
-│   │   ├── 02-proxmox-vm-configuration.png
-│   │   ├── 03-proxmox-vm-running.jpeg
-│   │   ├── 04-proxmox-ubuntu-console.jpeg
-│   │   ├── 05-proxmox-system-configuration.jpeg
-│   │   ├── 06-proxmox-sysbench-result.jpeg
-│   │   └── 07-proxmox-resource-monitoring.jpeg
-│   │
-│   ├── type2-vmware/
-│   │   ├── 01-vmware-vm-configuration.jpeg
-│   │   ├── 02-vmware-vm-running.jpeg
-│   │   ├── 03-vmware-system-configuration.jpeg
-│   │   └── 04-vmware-sysbench-result.jpeg
-│   │
-│   └── comparison/
-│       └── 01-hypervisor-performance-comparison.png
+├── mutex.c
+├── omp1.c
+├── omp_barrier.c
+├── omp_critical.c
+├── omp_perf.c
+├── omp_race.c
+├── omp_sum.c
+├── pthread_perf.c
+├── race.c
+├── thread1.c
+├── thread2.c
+└── thread_sum.c
 │
-└── results/
-    └── performance-analysis.md
+└── images/
+    ├── 01_pthread_single_thread.png
+    ├── 02_pthread_multiple_threads.png
+    ├── 03_pthread_work_distribution_sum.png
+    ├── 04_pthread_race_condition.png
+    ├── 05_pthread_mutex_fixed.png
+    ├── 06_omp_parallel_performance_4threads.png
+    ├── 06_pthread_performance.png
+    ├── 07_omp_sum_reduction.png
+    ├── 08_omp_race_condition.png
+    ├── 09_omp_critical_section.png
+    ├── 10_omp_barrier_synchronization.png
+    ├── 11_omp_performance_1_2_4_8_threads.png
+    ├── 12_pthread_performance_code_part2.png
+    ├── 13_sequential_code_output.png
+    ├── 14_sequential_output.png
+    ├── 15_pthread_performance_code_part1.png
+    ├── 16_pthread_performance_4threads_output.png
+    ├── execution_time_vs_threads.png
+    ├── speedup_vs_threads.png
+    └── efficiency_vs_threads.png
 ```
 
-### VM Shutdown
+---
+
+# 12. Compilation and Execution
+
+## Pthreads
+
+Compile using:
 
 ```bash
-sudo poweroff
+gcc thread1.c -o thread1 -pthread
 ```
 
-For VMware Workstation, alternatively: `VM → Power → Shut Down Guest`
+Run:
+
+```bash
+./thread1
+```
+
+For the other Pthread programs:
+
+```bash
+gcc thread2.c -o thread2 -pthread
+gcc thread_sum.c -o thread_sum -pthread
+gcc race.c -o race -pthread
+gcc mutex.c -o mutex -pthread
+gcc pthread_perf.c -o pthread_perf -pthread
+```
+
+Run the required executable using:
+
+```bash
+./thread2
+./thread_sum
+./race
+./mutex
+./pthread_perf
+```
+
+---
+
+## OpenMP
+
+Compile using GCC with the `-fopenmp` option:
+
+```bash
+gcc omp1.c -o omp1 -fopenmp
+```
+
+Other OpenMP programs:
+
+```bash
+gcc omp_sum.c -o omp_sum -fopenmp
+gcc omp_race.c -o omp_race -fopenmp
+gcc omp_critical.c -o omp_critical -fopenmp
+gcc omp_barrier.c -o omp_barrier -fopenmp
+gcc omp_perf.c -o omp_perf -fopenmp
+```
+
+Run:
+
+```bash
+./omp1
+./omp_sum
+./omp_race
+./omp_critical
+./omp_barrier
+./omp_perf
+```
+
+---
+
+# 13. Observations
+
+1. Pthreads provides explicit control over thread creation and synchronization.
+2. OpenMP provides a simpler directive-based approach to shared-memory parallelism.
+3. Unsynchronized shared-variable access can produce race conditions.
+4. Mutexes can protect shared data in Pthread programs.
+5. OpenMP critical sections provide mutual exclusion.
+6. OpenMP reduction provides an efficient way to perform parallel summation.
+7. Barriers synchronize the progress of multiple threads.
+8. Increasing the number of threads generally reduces execution time for the tested workload.
+9. Speedup increases as more threads are used, although it is not perfectly linear.
+10. Parallel efficiency decreases at higher thread counts because of overhead and hardware limitations.
+
+---
+
+# 14. Conclusion
+
+This experiment demonstrated multithreading using both **Pthreads** and **OpenMP**.
+
+Pthreads demonstrated explicit thread creation, work distribution, race conditions, and mutex-based synchronization. OpenMP demonstrated parallel regions, reduction, race conditions, critical sections, and barrier synchronization.
+
+The performance analysis showed that both approaches can significantly reduce execution time compared with sequential execution. For the tested workload, increasing the number of threads produced substantial speedup, while efficiency decreased at higher thread counts due to parallel overhead and hardware limitations.
+
+Overall, **Pthreads provides fine-grained control over threads and synchronization**, whereas **OpenMP provides a simpler and more convenient model for shared-memory parallel programming**.
